@@ -212,9 +212,57 @@ The build process fetches the latest version automatically from the `/latest` en
 
 ## CI/CD
 
-### GitHub Actions Workflow
+### Automated Releases
 
-The project includes a GitHub Actions workflow ([.github/workflows/publish-container.yml](.github/workflows/publish-container.yml)) that:
+The container images are automatically built and published when new Claude Code versions are released.
+
+**Process:**
+1. GitHub Actions checks daily for new Claude Code versions
+2. When a new version is detected (e.g., `2.1.17`):
+   - Creates a git tag with the version number (e.g., `v2.1.17`)
+   - Triggers container build for both amd64 and arm64
+   - Publishes images with multiple tags:
+     - `v2.1.17` (exact version)
+     - `v2.1` (minor version)
+     - `v2` (major version)
+     - `latest` (always points to latest release)
+
+**Image Tags:**
+```bash
+# Use specific version
+docker pull ghcr.io/zeroae/claude-code:v2.1.17
+
+# Use minor version (receives patch updates)
+docker pull ghcr.io/zeroae/claude-code:v2.1
+
+# Use major version (receives minor and patch updates)
+docker pull ghcr.io/zeroae/claude-code:v2
+
+# Use latest (always latest stable release)
+docker pull ghcr.io/zeroae/claude-code:latest
+```
+
+**Manual Version Check:**
+To manually trigger a version check without waiting for the daily schedule:
+1. Go to Actions → Check Claude Code Version
+2. Click "Run workflow"
+3. If a new version exists, a git tag will be created and build will trigger
+
+### GitHub Actions Workflows
+
+The project includes two GitHub Actions workflows:
+
+#### Version Detection ([.github/workflows/check-claude-version.yml](.github/workflows/check-claude-version.yml))
+
+Automatically detects new Claude Code versions and creates git tags:
+
+- **Schedule**: Runs daily at midnight UTC
+- **Manual Trigger**: Can be manually triggered via workflow_dispatch
+- **Process**: Fetches latest version from GCS bucket, compares against existing tags, creates new tag if needed
+
+#### Build and Publish ([.github/workflows/publish-container.yml](.github/workflows/publish-container.yml))
+
+Builds and publishes container images:
 
 1. **Verifies Claude Code source URL** - Runs the bundled verification script to ensure the Dockerfile uses the current GCS bucket URL
 2. **Builds multi-platform images** - Creates images for both `linux/amd64` and `linux/arm64`
@@ -222,15 +270,17 @@ The project includes a GitHub Actions workflow ([.github/workflows/publish-conta
 4. **Generates attestations** - Creates build provenance attestations for security
 
 **Triggers:**
-- Push to `main` branch → publishes as `latest` and `main` tags
-- Push version tags (e.g., `v1.0.0`) → publishes as `v1.0.0`, `v1.0`, `v1`, and `latest` tags
+- Push to `main` branch → publishes as `main` tag
+- Push version tags (e.g., `v2.1.17`) → publishes as `v2.1.17`, `v2.1`, `v2`, and `latest` tags
 - Pull requests → builds but doesn't publish (for testing)
 - Manual workflow dispatch → can be triggered manually
 
 **Published tags:**
-- `latest` - Latest release from main branch
+- `vX.Y.Z` - Specific Claude Code version (e.g., `v2.1.17`)
+- `vX.Y` - Minor version (e.g., `v2.1`)
+- `vX` - Major version (e.g., `v2`)
+- `latest` - Latest stable release
 - `main` - Latest commit on main branch
-- `v*` - Semantic version tags (e.g., `v1.0.0`, `v1.0`, `v1`)
 
 **Permissions required:**
 - `contents: read` - Read repository contents

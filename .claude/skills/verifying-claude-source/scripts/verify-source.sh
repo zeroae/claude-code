@@ -141,6 +141,9 @@ if [ "$OFFICIAL_BUCKET" = "$DOCKERFILE_BUCKET" ]; then
     echo "Summary:"
     echo "  Current version: $VERSION"
     echo "  Bucket URL: $OFFICIAL_BUCKET"
+    echo ""
+    echo "Note: Container images are automatically tagged with Claude Code versions."
+    echo "      Check releases at: https://github.com/zeroae/claude-code/releases"
     exit 0
 else
     echo -e "${YELLOW}⚠️  Dockerfile URL differs from official install script${NC}"

@@ -4,18 +4,35 @@ Run Claude Code in a containerized environment using Amazon Linux 2023.
 
 ## Quick Start
 
-### Using pre-built image from GitHub Container Registry
+### Using pre-built images from GitHub Container Registry
+
+Pre-built multi-architecture images are available from GitHub Container Registry. Images are automatically built daily when new Claude Code versions are released.
 
 ```bash
-# Pull the latest image
+# Pull specific version
+docker pull ghcr.io/zeroae/claude-code:v2.1.17
+
+# Pull latest stable release
 docker pull ghcr.io/zeroae/claude-code:latest
 
-# Run Claude Code
-docker run --rm -v "$(pwd):/workspace" -e ANTHROPIC_API_KEY ghcr.io/zeroae/claude-code:latest --version
+# Run with specific version
+docker run --rm -v "$(pwd):/workspace" -e ANTHROPIC_API_KEY \
+  ghcr.io/zeroae/claude-code:v2.1.17 --version
 
-# Start an interactive session
-docker run --rm -it -v "$(pwd):/workspace" -v ~/.claude:/root/.claude -e ANTHROPIC_API_KEY ghcr.io/zeroae/claude-code:latest
+# Start an interactive session with latest
+docker run --rm -it \
+  -v "$(pwd):/workspace" \
+  -v ~/.claude:/root/.claude \
+  -e ANTHROPIC_API_KEY \
+  ghcr.io/zeroae/claude-code:latest
 ```
+
+**Available Tags:**
+- `vX.Y.Z` - Specific version (e.g., `v2.1.17`)
+- `vX.Y` - Minor version, receives patch updates (e.g., `v2.1`)
+- `vX` - Major version, receives minor and patch updates (e.g., `v2`)
+- `latest` - Latest stable release
+- `main` - Latest commit on main branch (development)
 
 ### Building locally
 
@@ -107,12 +124,19 @@ This compares the Dockerfile URL against the official install script at `https:/
 
 Published images are available at:
 - **Registry**: `ghcr.io/zeroae/claude-code`
-- **Tags**:
-  - `latest` - Latest build from main branch
-  - `v*` - Semantic version tags (e.g., `v1.0.0`)
-  - `main` - Latest commit on main branch
+- **Automated Releases**: New images are automatically built daily when Claude Code releases new versions
+- **Version Tags**: Container image tags match Claude Code versions (e.g., `v2.1.17`)
+- **Flexible Versioning**: Pin to specific versions (`v2.1.17`), minor versions (`v2.1`), major versions (`v2`), or latest
 
-The container is automatically built and published via GitHub Actions when changes are pushed to the main branch or when version tags are created.
+**Automated Process:**
+1. GitHub Actions checks daily for new Claude Code versions
+2. When detected, creates a git tag matching the version (e.g., `v2.1.17`)
+3. Triggers multi-platform build (amd64 and arm64)
+4. Publishes with multiple tags for version flexibility
+
+**Workflows:**
+- [check-claude-version.yml](.github/workflows/check-claude-version.yml) - Daily version detection
+- [publish-container.yml](.github/workflows/publish-container.yml) - Build and publish
 
 ## Files
 

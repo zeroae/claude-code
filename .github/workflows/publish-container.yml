@@ -5,7 +5,7 @@ on:
     branches:
       - main
     tags:
-      - 'v*'
+      - 'v*'  # Match version tags like v2.1.17
   pull_request:
     branches:
       - main
@@ -64,6 +64,9 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=Claude Code Container
+            org.opencontainers.image.description=Containerized Claude Code CLI with VSIX extension
 
       - name: Build and push Docker image
         id: build
@@ -76,6 +79,22 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Verify VSIX in built image
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          # Extract first tag from metadata
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+
+          echo "Verifying VSIX in image: ${IMAGE_TAG}"
+
+          # Verify VSIX exists
+          docker run --rm --entrypoint ls "${IMAGE_TAG}" -lh /opt/claude-code/claude-code.vsix
+
+          # Verify VSIX is valid
+          docker run --rm --entrypoint file "${IMAGE_TAG}" /opt/claude-code/claude-code.vsix
+
+          echo "VSIX verification successful"
 
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'

@@ -1,0 +1,60 @@
+name: Check Claude Code Version
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight UTC
+  workflow_dispatch:  # Manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  check-version:
+    name: Check for New Claude Code Version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all tags
+
+      - name: Get latest Claude Code version
+        id: claude-version
+        run: |
+          GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases"
+          VERSION=$(curl -fsSL "${GCS_BUCKET}/latest")
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Latest Claude Code version: ${VERSION}"
+
+      - name: Check if version tag exists
+        id: check-tag
+        run: |
+          VERSION="${{ steps.claude-version.outputs.version }}"
+          TAG="v${VERSION}"
+          if git rev-parse "${TAG}" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "Tag ${TAG} already exists"
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "Tag ${TAG} does not exist - will create"
+          fi
+
+      - name: Create and push version tag
+        if: steps.check-tag.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.claude-version.outputs.version }}"
+          TAG="v${VERSION}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag -a "${TAG}" -m "Claude Code version ${VERSION}"
+          git push origin "${TAG}"
+
+          echo "Created and pushed tag: ${TAG}"
+
+      - name: Version already up to date
+        if: steps.check-tag.outputs.exists == 'true'
+        run: |
+          VERSION="${{ steps.claude-version.outputs.version }}"
+          echo "Container is already at Claude Code version ${VERSION} (tag: v${VERSION})"
