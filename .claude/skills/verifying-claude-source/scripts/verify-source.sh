@@ -88,6 +88,26 @@ echo -e "${GREEN}✅ Bucket is accessible${NC}"
 echo "   Latest version: $VERSION"
 echo ""
 
+# Verify VSIX is also accessible
+echo "🔌 Verifying VSIX availability..."
+VSIX_URL="${OFFICIAL_BUCKET}/${VERSION}/vscode/claude-code.vsix"
+if ! VSIX_SIZE=$(curl -sI "$VSIX_URL" 2>&1 | grep -i 'content-length' | awk '{print $2}' | tr -d '\r'); then
+    echo -e "${YELLOW}⚠️  Failed to check VSIX availability${NC}"
+    echo "   URL: $VSIX_URL"
+else
+    # Convert bytes to MB for display
+    VSIX_SIZE_MB=$(echo "scale=1; $VSIX_SIZE / 1048576" | bc 2>/dev/null || echo "unknown")
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$VSIX_URL")
+    if [ "$HTTP_CODE" = "200" ]; then
+        echo -e "${GREEN}✅ VSIX is accessible${NC}"
+        echo "   Size: ${VSIX_SIZE_MB}MB"
+    else
+        echo -e "${YELLOW}⚠️  VSIX returned HTTP ${HTTP_CODE}${NC}"
+        echo "   URL: $VSIX_URL"
+    fi
+fi
+echo ""
+
 # Check for Dockerfile in current directory
 echo "📄 Checking Dockerfile..."
 if [ ! -f "Dockerfile" ]; then

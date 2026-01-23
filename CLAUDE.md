@@ -20,9 +20,10 @@ This project provides a containerized environment for running Claude Code CLI us
 1. Base image with Amazon Linux 2023
 2. Install dependencies (git, nodejs, npm)
 3. Download Claude Code binary for the detected platform
-4. Install to `/usr/local/bin/claude`
-5. Set `/workspace` as working directory
-6. Configure entrypoint to run `claude` command
+4. Download Claude Code VSIX extension (platform-independent)
+5. Install CLI to `/usr/local/bin/claude` and VSIX to `/opt/claude-code/claude-code.vsix`
+6. Set `/workspace` as working directory
+7. Configure entrypoint to run `claude` command
 
 ### Runtime Configuration
 
@@ -109,6 +110,46 @@ Supported platforms for Linux:
 - `linux-arm64-musl` - Alpine/musl ARM64
 
 This project uses the standard glibc builds since Amazon Linux uses glibc.
+
+### Claude Code VSIX Extension
+
+The container includes the Claude Code VS Code extension (VSIX) at `/opt/claude-code/claude-code.vsix`.
+
+**VSIX Distribution:**
+- Location in GCS: `${BASE_URL}/${VERSION}/vscode/claude-code.vsix`
+- Size: ~29MB (29,189,479 bytes)
+- Platform: Universal (works on all architectures)
+- Version: Matches CLI binary version (both use `/latest` endpoint)
+
+**Extract VSIX from container:**
+```bash
+# Using docker run with pre-built image
+docker run --rm -v "$(pwd):/output" --entrypoint cp \
+  ghcr.io/zeroae/claude-code:latest \
+  /opt/claude-code/claude-code.vsix /output/claude-code.vsix
+
+# Using docker compose
+docker compose run --rm -v "$(pwd):/output" --entrypoint cp claude \
+  /opt/claude-code/claude-code.vsix /output/claude-code.vsix
+```
+
+**Install in VS Code:**
+```bash
+# Install the extracted VSIX
+code --install-extension ./claude-code.vsix
+
+# Or install directly from VS Code
+# Extensions: Install from VSIX... (Cmd+Shift+P)
+```
+
+**Verify VSIX in container:**
+```bash
+# Check VSIX exists and size
+docker compose run --rm --entrypoint ls claude -lh /opt/claude-code/claude-code.vsix
+
+# Verify it's a valid zip archive
+docker compose run --rm --entrypoint file claude /opt/claude-code/claude-code.vsix
+```
 
 ### Amazon Linux Package Management
 
