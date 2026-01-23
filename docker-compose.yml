@@ -1,0 +1,13 @@
+services:
+  claude:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: claude-code:latest
+    volumes:
+      - .:/workspace
+      - ~/.claude:/root/.claude
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    stdin_open: true
+    tty: true

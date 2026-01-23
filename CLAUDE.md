@@ -1,0 +1,198 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project Overview
+
+This project provides a containerized environment for running Claude Code CLI using Amazon Linux 2023. The container automatically downloads and installs the latest version of Claude Code, making it easy to run in isolated environments.
+
+## Architecture
+
+### Container Design
+
+- **Base Image**: Amazon Linux 2023 (official AWS Linux distribution)
+- **Package Manager**: DNF (Dandified YUM)
+- **Claude Code CLI**: Downloaded from Google Cloud Storage bucket at build time
+- **Platform Detection**: Automatically detects x64 or ARM64 architecture
+
+### Build Process
+
+1. Base image with Amazon Linux 2023
+2. Install dependencies (git, nodejs, npm)
+3. Download Claude Code binary for the detected platform
+4. Install to `/usr/local/bin/claude`
+5. Set `/workspace` as working directory
+6. Configure entrypoint to run `claude` command
+
+### Runtime Configuration
+
+The Docker Compose setup mounts:
+- Current directory to `/workspace` (your code)
+- `~/.claude` to `/root/.claude` (Claude Code settings)
+- Passes through `ANTHROPIC_API_KEY` environment variable
+
+## Common Commands
+
+### Using Pre-built Images
+
+```bash
+# Pull from GitHub Container Registry
+docker pull ghcr.io/zeroae/claude-code:latest
+
+# Run with pre-built image
+docker run --rm -v "$(pwd):/workspace" -e ANTHROPIC_API_KEY ghcr.io/zeroae/claude-code:latest --version
+
+# Interactive mode with pre-built image
+docker run --rm -it -v "$(pwd):/workspace" -v ~/.claude:/root/.claude -e ANTHROPIC_API_KEY ghcr.io/zeroae/claude-code:latest
+```
+
+### Building and Running Locally
+
+```bash
+# Build the container
+docker compose build
+
+# Run Claude Code
+docker compose run --rm claude [arguments]
+
+# Examples:
+docker compose run --rm claude --version
+docker compose run --rm claude --help
+docker compose run --rm claude  # Interactive mode
+```
+
+### Development
+
+```bash
+# Get a shell inside the container
+docker compose run --rm --entrypoint bash claude
+
+# Test Claude Code installation
+docker run --rm claude-code:latest --version
+
+# Rebuild from scratch
+docker compose build --no-cache
+```
+
+### Customization
+
+To modify the Dockerfile:
+- Change base image in `FROM` line (currently `amazonlinux:2023`)
+- Adjust dependencies in the `dnf install` command
+- Platform detection is in the Claude Code download RUN step
+
+## Key Implementation Notes
+
+### Claude Code Binary Distribution
+
+Claude Code is distributed via Google Cloud Storage:
+- Base URL: `https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases`
+- Version endpoint: `${BASE_URL}/latest` (returns version string like "2.1.17")
+- Binary endpoint: `${BASE_URL}/${VERSION}/${PLATFORM}/claude`
+
+**Source Discovery**: The GCS bucket URL is extracted from the official install script at `https://claude.ai/install.sh`. This is documented and automated in the Claude Code skill:
+- `.claude/skills/verifying-claude-source/` - Self-contained skill with bundled verification script
+
+To verify the URL is still current:
+```bash
+# Run the bundled script
+.claude/skills/verifying-claude-source/scripts/verify-source.sh
+
+# Or use the Claude Code skill
+/verifying-claude-source
+```
+
+Supported platforms for Linux:
+- `linux-x64` - Standard glibc x86_64
+- `linux-arm64` - Standard glibc ARM64
+- `linux-x64-musl` - Alpine/musl x86_64
+- `linux-arm64-musl` - Alpine/musl ARM64
+
+This project uses the standard glibc builds since Amazon Linux uses glibc.
+
+### Amazon Linux Package Management
+
+Amazon Linux 2023 includes these packages by default:
+- `bash`
+- `curl` (as curl-minimal)
+- `ca-certificates`
+
+We only need to install:
+- `git` - For repository operations
+- `nodejs` - Runtime dependency for Claude Code
+- `npm` - Package manager (comes with nodejs)
+
+### API Key Configuration
+
+Claude Code requires an Anthropic API key. This can be provided via:
+1. Environment variable: `ANTHROPIC_API_KEY`
+2. Config file: `~/.claude/config.json`
+3. Interactive login: `claude login`
+
+The Docker Compose setup handles option 1 automatically by passing through the environment variable.
+
+## Dependencies
+
+### Build Time
+- Docker 20.10+
+- Internet connection (to download Claude Code binary)
+
+### Runtime
+- Docker 20.10+
+- Docker Compose 2.0+
+- Anthropic API key
+
+## Troubleshooting
+
+### Build Issues
+
+**Problem**: DNF package conflicts
+**Solution**: Amazon Linux pre-installs curl-minimal which conflicts with curl. Remove curl from the dependency list or use `dnf install -y --allowerasing curl`.
+
+**Problem**: Architecture detection fails
+**Solution**: The Dockerfile only supports x86_64 and aarch64. Other architectures need manual platform specification.
+
+### Runtime Issues
+
+**Problem**: API key not found
+**Solution**: Set `ANTHROPIC_API_KEY` environment variable or mount `~/.claude` with your configuration.
+
+**Problem**: Permission denied on workspace files
+**Solution**: The container runs as root. Files created will be owned by root. Consider adding a user or using `--user` flag.
+
+### Version Updates
+
+To update to the latest Claude Code version:
+```bash
+docker compose build --no-cache
+```
+
+The build process fetches the latest version automatically from the `/latest` endpoint.
+
+## CI/CD
+
+### GitHub Actions Workflow
+
+The project includes a GitHub Actions workflow ([.github/workflows/publish-container.yml](.github/workflows/publish-container.yml)) that:
+
+1. **Verifies Claude Code source URL** - Runs the bundled verification script to ensure the Dockerfile uses the current GCS bucket URL
+2. **Builds multi-platform images** - Creates images for both `linux/amd64` and `linux/arm64`
+3. **Publishes to GitHub Container Registry** - Pushes images to `ghcr.io/zeroae/claude-code`
+4. **Generates attestations** - Creates build provenance attestations for security
+
+**Triggers:**
+- Push to `main` branch → publishes as `latest` and `main` tags
+- Push version tags (e.g., `v1.0.0`) → publishes as `v1.0.0`, `v1.0`, `v1`, and `latest` tags
+- Pull requests → builds but doesn't publish (for testing)
+- Manual workflow dispatch → can be triggered manually
+
+**Published tags:**
+- `latest` - Latest release from main branch
+- `main` - Latest commit on main branch
+- `v*` - Semantic version tags (e.g., `v1.0.0`, `v1.0`, `v1`)
+
+**Permissions required:**
+- `contents: read` - Read repository contents
+- `packages: write` - Publish to GitHub Container Registry
+
+The workflow uses `GITHUB_TOKEN` for authentication, which is automatically provided by GitHub Actions.

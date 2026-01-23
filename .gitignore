@@ -1,0 +1,6 @@
+# Environment
+.env
+
+# Claude settings (keep .claude/ in git for skills)
+.claude/settings.local.json
+.claude/sessions/
