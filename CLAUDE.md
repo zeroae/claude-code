@@ -19,11 +19,13 @@ This project provides a containerized environment for running Claude Code CLI us
 
 1. Base image with Amazon Linux 2023
 2. Install dependencies (git, nodejs, npm)
-3. Download Claude Code binary for the detected platform
-4. Download Claude Code VSIX extension (platform-independent)
-5. Install CLI to `/usr/local/bin/claude` and VSIX to `/opt/claude-code/claude-code.vsix`
-6. Set `/workspace` as working directory
-7. Configure entrypoint to run `claude` command
+3. Install GitHub CLI (gh)
+4. Install pyright (Python static type checker via npm)
+5. Download Claude Code binary for the detected platform
+6. Download Claude Code VSIX extension (platform-independent)
+7. Install CLI to `/usr/local/bin/claude` and VSIX to `/opt/claude-code/claude-code.vsix`
+8. Set `/workspace` as working directory
+9. Configure entrypoint to run `claude` command
 
 ### Runtime Configuration
 
@@ -158,10 +160,12 @@ Amazon Linux 2023 includes these packages by default:
 - `curl` (as curl-minimal)
 - `ca-certificates`
 
-We only need to install:
+Installed packages:
 - `git` - For repository operations
 - `nodejs` - Runtime dependency for Claude Code
 - `npm` - Package manager (comes with nodejs)
+- `gh` - GitHub CLI for GitHub API operations
+- `pyright` - Python static type checker (installed via npm)
 
 ### API Key Configuration
 

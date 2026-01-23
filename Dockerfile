@@ -7,6 +7,14 @@ RUN dnf install -y \
     npm \
     && dnf clean all
 
+# Install GitHub CLI
+RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo | tee /etc/yum.repos.d/gh-cli.repo && \
+    dnf install -y gh && \
+    dnf clean all
+
+# Install pyright (Python static type checker)
+RUN npm install -g pyright
+
 # Download and install Claude Code CLI and VSIX extension
 RUN GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases" && \
     VERSION=$(curl -fsSL "${GCS_BUCKET}/latest") && \

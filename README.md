@@ -98,6 +98,7 @@ claude --version
 - **Claude Code Version**: 2.1.17 (automatically fetches latest)
 - **Platform**: Linux x64/arm64 (auto-detected)
 - **Source**: Google Cloud Storage (verified against official install script)
+- **Included Tools**: git, nodejs, npm, gh (GitHub CLI), pyright
 
 ## Maintenance
 
