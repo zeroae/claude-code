@@ -164,6 +164,8 @@ Installed packages:
 - `git` - For repository operations
 - `nodejs` - Runtime dependency for Claude Code
 - `npm` - Package manager (comes with nodejs)
+- `file` - File type identification utility
+- `which` - Utility to locate commands
 - `gh` - GitHub CLI for GitHub API operations
 - `pyright` - Python static type checker (installed via npm)
 

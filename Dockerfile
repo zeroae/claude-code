@@ -5,6 +5,8 @@ RUN dnf install -y \
     git \
     nodejs \
     npm \
+    file \
+    which \
     && dnf clean all
 
 # Install GitHub CLI
