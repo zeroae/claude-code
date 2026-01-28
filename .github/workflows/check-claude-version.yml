@@ -2,7 +2,7 @@ name: Check Claude Code Version
 
 on:
   schedule:
-    - cron: '0 6,18 * * *'  # Twice daily at 6am and 6pm UTC
+    - cron: '37 6,18 * * *'  # Twice daily at 6:37am and 6:37pm UTC
   workflow_dispatch:  # Manual trigger
 
 permissions:
