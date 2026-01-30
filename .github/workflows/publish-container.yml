@@ -66,17 +66,17 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch,enable=${{ inputs.version == '' }}
+            type=ref,event=pr,enable=${{ inputs.version == '' }}
+            type=semver,pattern={{version}},enable=${{ inputs.version == '' }}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ inputs.version == '' }}
+            type=semver,pattern={{major}},enable=${{ inputs.version == '' }}
+            type=raw,value=latest,enable=${{ inputs.version == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
             # Tags for workflow_call trigger (version input provided)
-            type=semver,pattern={{version}},value=v${{ inputs.version }},enable=${{ github.event_name == 'workflow_call' }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }},enable=${{ github.event_name == 'workflow_call' }}
-            type=semver,pattern={{major}},value=v${{ inputs.version }},enable=${{ github.event_name == 'workflow_call' }}
-            type=raw,value=latest,enable=${{ github.event_name == 'workflow_call' }}
+            type=semver,pattern={{version}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=semver,pattern={{major}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
+            type=raw,value=latest,enable=${{ inputs.version != '' }}
           labels: |
             org.opencontainers.image.title=Claude Code Container
             org.opencontainers.image.description=Containerized Claude Code CLI with VSIX extension
@@ -94,7 +94,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Verify VSIX in built image
-        if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_call'
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
         run: |
           # Extract first tag from metadata
           IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
