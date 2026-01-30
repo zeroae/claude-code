@@ -12,6 +12,9 @@ jobs:
   check-version:
     name: Check for New Claude Code Version
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.claude-version.outputs.version }}
+      new-version: ${{ steps.check-tag.outputs.exists == 'false' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -58,3 +61,17 @@ jobs:
         run: |
           VERSION="${{ steps.claude-version.outputs.version }}"
           echo "Container is already at Claude Code version ${VERSION} (tag: v${VERSION})"
+
+  publish:
+    name: Publish Container
+    needs: check-version
+    if: needs.check-version.outputs.new-version == 'true'
+    uses: ./.github/workflows/publish-container.yml
+    with:
+      version: ${{ needs.check-version.outputs.version }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
