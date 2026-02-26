@@ -35,12 +35,12 @@ RUN GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42
     # Download Linux CLI binary
     curl -fsSL "${GCS_BUCKET}/${VERSION}/${PLATFORM}/claude" -o /usr/local/bin/claude && \
     chmod +x /usr/local/bin/claude && \
-    # Download VSIX extension (platform-independent)
+    # Download VSIX extension (platform-independent, optional)
     mkdir -p /opt/claude-code && \
-    curl -fsSL "${GCS_BUCKET}/${VERSION}/vscode/claude-code.vsix" -o /opt/claude-code/claude-code.vsix && \
-    # Download Windows binary
+    curl -fsSL "${GCS_BUCKET}/${VERSION}/vscode/claude-code.vsix" -o /opt/claude-code/claude-code.vsix || true && \
+    # Download Windows binary (optional)
     mkdir -p /opt/claude-code/win32-x64 && \
-    curl -fsSL "${GCS_BUCKET}/${VERSION}/win32-x64/claude.exe" -o /opt/claude-code/win32-x64/claude.exe && \
+    curl -fsSL "${GCS_BUCKET}/${VERSION}/win32-x64/claude.exe" -o /opt/claude-code/win32-x64/claude.exe || true && \
     echo "Claude Code CLI, VSIX, and Windows binaries version ${VERSION} installed successfully"
 
 # Set up working directory
