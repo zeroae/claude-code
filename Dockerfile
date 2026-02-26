@@ -18,8 +18,13 @@ RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo | tee /etc/yum.re
 RUN npm install -g pyright
 
 # Download and install Claude Code CLI, VSIX extension, and Windows binaries
+ARG CLAUDE_VERSION=latest
 RUN GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases" && \
-    VERSION=$(curl -fsSL "${GCS_BUCKET}/latest") && \
+    if [ "$CLAUDE_VERSION" = "latest" ]; then \
+        VERSION=$(curl -fsSL "${GCS_BUCKET}/latest"); \
+    else \
+        VERSION="$CLAUDE_VERSION"; \
+    fi && \
     # Detect architecture for Linux CLI binary
     case "$(uname -m)" in \
         x86_64) PLATFORM="linux-x64" ;; \
