@@ -17,23 +17,26 @@ RUN curl -fsSL https://cli.github.com/packages/rpm/gh-cli.repo | tee /etc/yum.re
 # Install pyright (Python static type checker)
 RUN npm install -g pyright
 
-# Download and install Claude Code CLI and VSIX extension
+# Download and install Claude Code CLI, VSIX extension, and Windows binaries
 RUN GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases" && \
     VERSION=$(curl -fsSL "${GCS_BUCKET}/latest") && \
-    # Detect architecture for CLI binary
+    # Detect architecture for Linux CLI binary
     case "$(uname -m)" in \
         x86_64) PLATFORM="linux-x64" ;; \
         aarch64) PLATFORM="linux-arm64" ;; \
         *) echo "Unsupported arch: $(uname -m)" && exit 1 ;; \
     esac && \
     echo "Installing Claude Code ${VERSION} for ${PLATFORM}..." && \
-    # Download CLI binary
+    # Download Linux CLI binary
     curl -fsSL "${GCS_BUCKET}/${VERSION}/${PLATFORM}/claude" -o /usr/local/bin/claude && \
     chmod +x /usr/local/bin/claude && \
     # Download VSIX extension (platform-independent)
     mkdir -p /opt/claude-code && \
     curl -fsSL "${GCS_BUCKET}/${VERSION}/vscode/claude-code.vsix" -o /opt/claude-code/claude-code.vsix && \
-    echo "Claude Code CLI and VSIX version ${VERSION} installed successfully"
+    # Download Windows binary
+    mkdir -p /opt/claude-code/win32-x64 && \
+    curl -fsSL "${GCS_BUCKET}/${VERSION}/win32-x64/claude.exe" -o /opt/claude-code/win32-x64/claude.exe && \
+    echo "Claude Code CLI, VSIX, and Windows binaries version ${VERSION} installed successfully"
 
 # Set up working directory
 WORKDIR /workspace
