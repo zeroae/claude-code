@@ -127,6 +127,22 @@ jobs:
 
           echo "VSIX verification successful"
 
+      - name: Verify Windows binary in built image
+        continue-on-error: true
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
+        run: |
+          # Extract first tag from metadata
+          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
+
+          echo "Verifying Windows binary in image: ${IMAGE_TAG}"
+
+          if docker run --rm --entrypoint test "${IMAGE_TAG}" -f /opt/claude-code/win32-x64/claude.exe; then
+            docker run --rm --entrypoint ls "${IMAGE_TAG}" -lh /opt/claude-code/win32-x64/claude.exe
+            echo "Windows binary verification successful"
+          else
+            echo "::warning::Windows binary missing from image ${IMAGE_TAG} (not published for this version, or download failed)"
+          fi
+
       - name: Generate artifact attestation
         if: github.event_name != 'pull_request'
         uses: actions/attest-build-provenance@v1
