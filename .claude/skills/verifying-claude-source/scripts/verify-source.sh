@@ -44,16 +44,19 @@ if ! INSTALL_SCRIPT=$(curl -fsSL https://claude.ai/install.sh 2>&1); then
     exit 1
 fi
 
-# Extract GCS_BUCKET variable from install script
-# The official script defines: GCS_BUCKET="https://storage.googleapis.com/..."
-echo "🔍 Extracting GCS bucket URL..."
-OFFICIAL_BUCKET=$(echo "$INSTALL_SCRIPT" | grep '^GCS_BUCKET=' | head -1 | cut -d'"' -f2)
+# Extract the download base URL from the install script.
+# The current official script defines:
+#   DOWNLOAD_BASE_URL="https://downloads.claude.ai/claude-code-releases"
+# Older versions used GCS_BUCKET="https://storage.googleapis.com/..." so we
+# fall back to that name for resilience against future format changes.
+echo "🔍 Extracting download base URL..."
+OFFICIAL_BUCKET=$(echo "$INSTALL_SCRIPT" | grep -E '^(DOWNLOAD_BASE_URL|GCS_BUCKET)=' | head -1 | cut -d'"' -f2)
 
 if [ -z "$OFFICIAL_BUCKET" ]; then
-    echo -e "${RED}❌ Failed to extract GCS_BUCKET from install script${NC}"
+    echo -e "${RED}❌ Failed to extract download base URL from install script${NC}"
     echo ""
     echo "The install script format may have changed."
-    echo "Manually verify the GCS bucket URL at:"
+    echo "Manually verify the download base URL at:"
     echo "  https://claude.ai/install.sh"
     exit 1
 fi

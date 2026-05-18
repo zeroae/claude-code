@@ -19,7 +19,7 @@ RUN npm install -g pyright
 
 # Download and install Claude Code CLI, VSIX extension, and Windows binaries
 ARG CLAUDE_VERSION=latest
-RUN GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases" && \
+RUN GCS_BUCKET="https://downloads.claude.ai/claude-code-releases" && \
     if [ "$CLAUDE_VERSION" = "latest" ]; then \
         VERSION=$(curl -fsSL "${GCS_BUCKET}/latest"); \
     else \
