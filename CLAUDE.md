@@ -118,10 +118,10 @@ This project uses the standard glibc builds since Amazon Linux uses glibc.
 The container includes the Claude Code VS Code extension (VSIX) at `/opt/claude-code/claude-code.vsix`.
 
 **VSIX Distribution:**
-- Location in GCS: `${BASE_URL}/${VERSION}/vscode/claude-code.vsix`
-- Size: ~29MB (29,189,479 bytes)
+- Source: Open VSX, `https://open-vsx.org/api/anthropic/claude-code/latest` (the `files.download` URL in the response)
+- The VSIX is not on the release host (`downloads.claude.ai`), so it is no longer tied to the CLI version
 - Platform: Universal (works on all architectures)
-- Version: Matches CLI binary version (both use `/latest` endpoint)
+- The build warns and continues if the VSIX can't be fetched; `vsix=no` in the build log means it's missing
 
 **Extract VSIX from container:**
 ```bash
