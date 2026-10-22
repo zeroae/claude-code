@@ -20,6 +20,11 @@ on:
         required: false
         type: boolean
         default: true
+      no_cache:
+        description: 'Rebuild every layer, ignoring the build cache (use after a transient download failure).'
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
       version:
@@ -96,6 +101,22 @@ jobs:
             org.opencontainers.image.title=Claude Code Container
             org.opencontainers.image.description=Containerized Claude Code CLI with VSIX extension
 
+      - name: Resolve Claude Code version
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: |
+          # Resolve "latest" here so the build arg changes with each release.
+          # The Dockerfile's RUN text never changes, so passing the literal
+          # "latest" would let Buildx reuse a stale cached layer.
+          if [ -n "$REQUESTED_VERSION" ]; then
+            VERSION="$REQUESTED_VERSION"
+          else
+            VERSION=$(curl -fsSL "https://downloads.claude.ai/claude-code-releases/latest")
+          fi
+          echo "Building Claude Code ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
       - name: Build and push Docker image
         id: build
         uses: docker/build-push-action@v5
@@ -106,9 +127,10 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            CLAUDE_VERSION=${{ inputs.version || 'latest' }}
+            CLAUDE_VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          no-cache: ${{ inputs.no_cache || false }}
 
       - name: Verify VSIX in built image
         continue-on-error: true
