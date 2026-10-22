@@ -36,10 +36,13 @@ RUN set -eu; \
     # Required: Linux CLI binary (hard failure if missing)
     curl -fsSL "${GCS_BUCKET}/${VERSION}/${PLATFORM}/claude" -o /usr/local/bin/claude; \
     chmod +x /usr/local/bin/claude; \
-    # Optional: VSIX extension (platform-independent) -- warn, do not fail
+    # Optional: VSIX extension from Open VSX (platform-independent) -- warn, do not fail
     mkdir -p /opt/claude-code; \
-    if ! curl -fsSL "${GCS_BUCKET}/${VERSION}/vscode/claude-code.vsix" -o /opt/claude-code/claude-code.vsix; then \
-        echo "WARNING: VSIX not available for ${VERSION}; skipping" >&2; \
+    VSIX_URL=$(curl -fsSL "https://open-vsx.org/api/anthropic/claude-code/latest" \
+        | node -p 'JSON.parse(require("fs").readFileSync(0, "utf8")).files.download' 2>/dev/null) \
+        || VSIX_URL=""; \
+    if [ -z "$VSIX_URL" ] || ! curl -fsSL "$VSIX_URL" -o /opt/claude-code/claude-code.vsix; then \
+        echo "WARNING: VSIX not available from Open VSX; skipping" >&2; \
         rm -f /opt/claude-code/claude-code.vsix; \
     fi; \
     # Optional: Windows x64 binary -- warn, do not fail
