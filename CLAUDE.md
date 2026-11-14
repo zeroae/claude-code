@@ -1,295 +1,41 @@
-# CLAUDE.md
+# Repository guidance
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This repository builds separate Amazon Linux 2023 images for Claude, Codex, and T3 Code. For authentication, VSIX extraction, Windows payloads, desktop display setup, or user-facing commands, read [README.md](README.md).
 
-## Project Overview
+## Image changes
 
-This project provides a containerized environment for running Claude Code CLI using Amazon Linux 2023. The container automatically downloads and installs the latest version of Claude Code, making it easy to run in isolated environments.
+Use the named `claude`, `codex`, and `t3` targets in [Dockerfile](Dockerfile). An untargeted build defaults to Claude for compatibility. Shared development dependencies belong in `base`; desktop libraries belong in the T3 target.
 
-## Architecture
+Claude and Codex remain separate CLI images. T3 includes both providers, its web UI/server and native desktop, plus Windows x64 payloads. Keep the complete Codex Windows package and T3 Windows server bundle intact: their helpers, resources, and web assets are required alongside the executables.
 
-### Container Design
+For build-time version changes, keep `/opt/image-versions.json` consistent with the installed binaries and extensions. CI resolves current upstream versions and passes explicit build arguments; Dockerfile defaults support local builds.
 
-- **Base Image**: Amazon Linux 2023 (official AWS Linux distribution)
-- **Package Manager**: DNF (Dandified YUM)
-- **Claude Code CLI**: Downloaded from Google Cloud Storage bucket at build time
-- **Platform Detection**: Automatically detects x64 or ARM64 architecture
+Amazon Linux includes `curl-minimal`; installing `curl` directly conflicts with it. The supported Linux architectures are x86_64 and aarch64. The image runs as root, so the desktop Compose service explicitly passes Electron's `--no-sandbox` flag.
 
-### Build Process
+## Publishing changes
 
-1. Base image with Amazon Linux 2023
-2. Install dependencies (git, nodejs, npm)
-3. Install GitHub CLI (gh)
-4. Install pyright (Python static type checker via npm)
-5. Download Claude Code binary for the detected platform
-6. Download Claude Code VSIX extension (platform-independent)
-7. Install CLI to `/usr/local/bin/claude` and VSIX to `/opt/claude-code/claude-code.vsix`
-8. Set `/workspace` as working directory
-9. Configure entrypoint to run `claude` command
+For tag selection, upstream resolution, snapshot naming, or update detection, read [scripts/image_release.py](scripts/image_release.py) and its tests. For execution and promotion order, read [.github/workflows/publish-image.yml](.github/workflows/publish-image.yml).
 
-### Runtime Configuration
+Each image uses its own product version and registry namespace. T3 also tracks both provider versions and the Codex VSIX version. A provider update rebuilds T3 without changing T3's primary version. Unique snapshot tags record the full combination and workflow run.
 
-The Docker Compose setup mounts:
-- Current directory to `/workspace` (your code)
-- `~/.claude` to `/root/.claude` (Claude Code settings)
-- Passes through `ANTHROPIC_API_KEY` environment variable
+Promote aliases only after runtime/artifact checks and provenance succeed, and only for the current upstream combination at the current `main` revision. Record Git success markers after promotion so failed publications remain eligible for retry. Scheduled checks verify registry aliases as well as the marker; stale aliases require repair even if their version was published before. Checks run independently for each target. Marker tags use the `images/` namespace and do not trigger release builds.
 
-## Common Commands
+## Verification
 
-### Using Pre-built Images
+For release-planning changes:
 
 ```bash
-# Pull from GitHub Container Registry
-docker pull ghcr.io/zeroae/claude-code:latest
-
-# Run with pre-built image
-docker run --rm -v "$(pwd):/workspace" -e ANTHROPIC_API_KEY ghcr.io/zeroae/claude-code:latest --version
-
-# Interactive mode with pre-built image
-docker run --rm -it -v "$(pwd):/workspace" -v ~/.claude:/root/.claude -e ANTHROPIC_API_KEY ghcr.io/zeroae/claude-code:latest
+python3 -m unittest discover -s scripts -p 'test_*.py' -v
 ```
 
-### Building and Running Locally
+After rebuilding an affected target:
 
 ```bash
-# Build the container
-docker compose build
-
-# Run Claude Code
-docker compose run --rm claude [arguments]
-
-# Examples:
-docker compose run --rm claude --version
-docker compose run --rm claude --help
-docker compose run --rm claude  # Interactive mode
+scripts/smoke-test-image.sh claude claude-code:latest
+scripts/smoke-test-image.sh codex codex:latest
+scripts/smoke-test-image.sh t3 t3-code:latest
 ```
 
-### Development
+Smoke tests verify Linux startup, image separation, VSIX identity/platform, Windows executable formats, and T3 web assets. Windows binaries require a Windows host for execution tests.
 
-```bash
-# Get a shell inside the container
-docker compose run --rm --entrypoint bash claude
-
-# Test Claude Code installation
-docker run --rm claude-code:latest --version
-
-# Rebuild from scratch
-docker compose build --no-cache
-```
-
-### Customization
-
-To modify the Dockerfile:
-- Change base image in `FROM` line (currently `amazonlinux:2023`)
-- Adjust dependencies in the `dnf install` command
-- Platform detection is in the Claude Code download RUN step
-
-## Key Implementation Notes
-
-### Claude Code Binary Distribution
-
-Claude Code is distributed via Google Cloud Storage:
-- Base URL: `https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases`
-- Version endpoint: `${BASE_URL}/latest` (returns version string like "2.1.17")
-- Binary endpoint: `${BASE_URL}/${VERSION}/${PLATFORM}/claude`
-
-**Source Discovery**: The GCS bucket URL is extracted from the official install script at `https://claude.ai/install.sh`. This is documented and automated in the Claude Code skill:
-- `.claude/skills/verifying-claude-source/` - Self-contained skill with bundled verification script
-
-To verify the URL is still current:
-```bash
-# Run the bundled script
-.claude/skills/verifying-claude-source/scripts/verify-source.sh
-
-# Or use the Claude Code skill
-/verifying-claude-source
-```
-
-Supported platforms for Linux:
-- `linux-x64` - Standard glibc x86_64
-- `linux-arm64` - Standard glibc ARM64
-- `linux-x64-musl` - Alpine/musl x86_64
-- `linux-arm64-musl` - Alpine/musl ARM64
-
-This project uses the standard glibc builds since Amazon Linux uses glibc.
-
-### Claude Code VSIX Extension
-
-The container includes the Claude Code VS Code extension (VSIX) at `/opt/claude-code/claude-code.vsix`.
-
-**VSIX Distribution:**
-- Source: Open VSX, `https://open-vsx.org/api/anthropic/claude-code/latest` (the `files.download` URL in the response)
-- The VSIX is not on the release host (`downloads.claude.ai`), so it is no longer tied to the CLI version
-- Platform: Universal (works on all architectures)
-- The build warns and continues if the VSIX can't be fetched; `vsix=no` in the build log means it's missing
-
-**Extract VSIX from container:**
-```bash
-# Using docker run with pre-built image
-docker run --rm -v "$(pwd):/output" --entrypoint cp \
-  ghcr.io/zeroae/claude-code:latest \
-  /opt/claude-code/claude-code.vsix /output/claude-code.vsix
-
-# Using docker compose
-docker compose run --rm -v "$(pwd):/output" --entrypoint cp claude \
-  /opt/claude-code/claude-code.vsix /output/claude-code.vsix
-```
-
-**Install in VS Code:**
-```bash
-# Install the extracted VSIX
-code --install-extension ./claude-code.vsix
-
-# Or install directly from VS Code
-# Extensions: Install from VSIX... (Cmd+Shift+P)
-```
-
-**Verify VSIX in container:**
-```bash
-# Check VSIX exists and size
-docker compose run --rm --entrypoint ls claude -lh /opt/claude-code/claude-code.vsix
-
-# Verify it's a valid zip archive
-docker compose run --rm --entrypoint file claude /opt/claude-code/claude-code.vsix
-```
-
-### Amazon Linux Package Management
-
-Amazon Linux 2023 includes these packages by default:
-- `bash`
-- `curl` (as curl-minimal)
-- `ca-certificates`
-
-Installed packages:
-- `git` - For repository operations
-- `nodejs` - Runtime dependency for Claude Code
-- `npm` - Package manager (comes with nodejs)
-- `file` - File type identification utility
-- `which` - Utility to locate commands
-- `gh` - GitHub CLI for GitHub API operations
-- `pyright` - Python static type checker (installed via npm)
-
-### API Key Configuration
-
-Claude Code requires an Anthropic API key. This can be provided via:
-1. Environment variable: `ANTHROPIC_API_KEY`
-2. Config file: `~/.claude/config.json`
-3. Interactive login: `claude login`
-
-The Docker Compose setup handles option 1 automatically by passing through the environment variable.
-
-## Dependencies
-
-### Build Time
-- Docker 20.10+
-- Internet connection (to download Claude Code binary)
-
-### Runtime
-- Docker 20.10+
-- Docker Compose 2.0+
-- Anthropic API key
-
-## Troubleshooting
-
-### Build Issues
-
-**Problem**: DNF package conflicts
-**Solution**: Amazon Linux pre-installs curl-minimal which conflicts with curl. Remove curl from the dependency list or use `dnf install -y --allowerasing curl`.
-
-**Problem**: Architecture detection fails
-**Solution**: The Dockerfile only supports x86_64 and aarch64. Other architectures need manual platform specification.
-
-### Runtime Issues
-
-**Problem**: API key not found
-**Solution**: Set `ANTHROPIC_API_KEY` environment variable or mount `~/.claude` with your configuration.
-
-**Problem**: Permission denied on workspace files
-**Solution**: The container runs as root. Files created will be owned by root. Consider adding a user or using `--user` flag.
-
-### Version Updates
-
-To update to the latest Claude Code version:
-```bash
-docker compose build --no-cache
-```
-
-The build process fetches the latest version automatically from the `/latest` endpoint.
-
-## CI/CD
-
-### Automated Releases
-
-The container images are automatically built and published when new Claude Code versions are released.
-
-**Process:**
-1. GitHub Actions checks daily for new Claude Code versions
-2. When a new version is detected (e.g., `2.1.17`):
-   - Creates a git tag with the version number (e.g., `v2.1.17`)
-   - Triggers container build for both amd64 and arm64
-   - Publishes images with multiple tags:
-     - `v2.1.17` (exact version)
-     - `v2.1` (minor version)
-     - `v2` (major version)
-     - `latest` (always points to latest release)
-
-**Image Tags:**
-```bash
-# Use specific version
-docker pull ghcr.io/zeroae/claude-code:v2.1.17
-
-# Use minor version (receives patch updates)
-docker pull ghcr.io/zeroae/claude-code:v2.1
-
-# Use major version (receives minor and patch updates)
-docker pull ghcr.io/zeroae/claude-code:v2
-
-# Use latest (always latest stable release)
-docker pull ghcr.io/zeroae/claude-code:latest
-```
-
-**Manual Version Check:**
-To manually trigger a version check without waiting for the daily schedule:
-1. Go to Actions → Check Claude Code Version
-2. Click "Run workflow"
-3. If a new version exists, a git tag will be created and build will trigger
-
-### GitHub Actions Workflows
-
-The project includes two GitHub Actions workflows:
-
-#### Version Detection ([.github/workflows/check-claude-version.yml](.github/workflows/check-claude-version.yml))
-
-Automatically detects new Claude Code versions and creates git tags:
-
-- **Schedule**: Runs daily at midnight UTC
-- **Manual Trigger**: Can be manually triggered via workflow_dispatch
-- **Process**: Fetches latest version from GCS bucket, compares against existing tags, creates new tag if needed
-
-#### Build and Publish ([.github/workflows/publish-container.yml](.github/workflows/publish-container.yml))
-
-Builds and publishes container images:
-
-1. **Verifies Claude Code source URL** - Runs the bundled verification script to ensure the Dockerfile uses the current GCS bucket URL
-2. **Builds multi-platform images** - Creates images for both `linux/amd64` and `linux/arm64`
-3. **Publishes to GitHub Container Registry** - Pushes images to `ghcr.io/zeroae/claude-code`
-4. **Generates attestations** - Creates build provenance attestations for security
-
-**Triggers:**
-- Push to `main` branch → publishes as `main` tag
-- Push version tags (e.g., `v2.1.17`) → publishes as `v2.1.17`, `v2.1`, `v2`, and `latest` tags
-- Pull requests → builds but doesn't publish (for testing)
-- Manual workflow dispatch → can be triggered manually
-
-**Published tags:**
-- `vX.Y.Z` - Specific Claude Code version (e.g., `v2.1.17`)
-- `vX.Y` - Minor version (e.g., `v2.1`)
-- `vX` - Major version (e.g., `v2`)
-- `latest` - Latest stable release
-- `main` - Latest commit on main branch
-
-**Permissions required:**
-- `contents: read` - Read repository contents
-- `packages: write` - Publish to GitHub Container Registry
-
-The workflow uses `GITHUB_TOKEN` for authentication, which is automatically provided by GitHub Actions.
+For Claude download-source changes, use `.claude/skills/verifying-claude-source/scripts/verify-source.sh`. It verifies the Dockerfile's `GCS_BUCKET` variable against the official installer; the variable name is retained even though the release host is now `downloads.claude.ai`.

@@ -3,11 +3,64 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: claude
     image: claude-code:latest
     volumes:
       - .:/workspace
       - ~/.claude:/root/.claude
     environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
     stdin_open: true
     tty: true
+  codex:
+    profiles: [codex]
+    build:
+      context: .
+      target: codex
+    image: codex:latest
+    volumes:
+      - .:/workspace
+      - codex-state:/root/.codex
+    stdin_open: true
+    tty: true
+  t3:
+    profiles: [t3]
+    build:
+      context: .
+      target: t3
+    image: t3-code:latest
+    ports:
+      - "127.0.0.1:3773:3773"
+    volumes:
+      - .:/workspace
+      - ~/.claude:/root/.claude
+      - codex-state:/root/.codex
+      - t3-state:/root/.t3
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+  t3-desktop:
+    profiles: [desktop]
+    build:
+      context: .
+      target: t3
+    image: t3-code:latest
+    entrypoint: [t3-desktop]
+    # Electron requires this when launched as the image's default root user.
+    command: [--no-sandbox]
+    shm_size: 1gb
+    volumes:
+      - .:/workspace
+      - ~/.claude:/root/.claude
+      - codex-state:/root/.codex
+      - t3-desktop-state:/root/.config
+      - /tmp/.X11-unix:/tmp/.X11-unix:ro
+      - ${XAUTHORITY:-/dev/null}:/tmp/.Xauthority:ro
+    environment:
+      - DISPLAY=${DISPLAY:-:0}
+      - XAUTHORITY=/tmp/.Xauthority
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+
+volumes:
+  codex-state:
+  t3-state:
+  t3-desktop-state:

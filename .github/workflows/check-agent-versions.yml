@@ -1,0 +1,24 @@
+name: Check Agent Versions
+
+on:
+  schedule:
+    - cron: '37 6,18 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-and-publish:
+    name: Check ${{ matrix.target }} and its dependencies
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [claude, codex, t3]
+    uses: ./.github/workflows/publish-image.yml
+    with:
+      target: ${{ matrix.target }}
+      check_existing: true
+    secrets: inherit
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write

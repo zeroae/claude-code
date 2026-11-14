@@ -1,174 +1,75 @@
-name: Publish Container
+name: Publish Containers
 
 on:
   push:
-    branches:
-      - main
-    tags:
-      - 'v*'  # Match version tags like v2.1.17
+    branches: [main]
+    tags: ['v*', 'codex-v*', 't3-v*']
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
     inputs:
+      target:
+        description: Image to publish
+        type: choice
+        options: [all, claude, codex, t3]
+        default: all
       version:
-        description: 'Claude Code version to build (e.g., 2.1.23)'
-        required: false
+        description: Optional upstream version; requires one explicit target
         type: string
       update_aliases:
-        description: 'Also update alias tags (latest, vX, vX.Y). Disable to only push the exact version tag.'
-        required: false
+        description: Update latest, major, and minor aliases
         type: boolean
         default: true
       no_cache:
-        description: 'Rebuild every layer, ignoring the build cache (use after a transient download failure).'
-        required: false
+        description: Ignore build cache
         type: boolean
         default: false
   workflow_call:
     inputs:
-      version:
-        description: 'Claude Code version to build (e.g., 2.1.23)'
-        required: true
+      target:
         type: string
+        default: claude
+      version:
+        type: string
+        default: ''
       update_aliases:
-        description: 'Also update alias tags (latest, vX, vX.Y). Disable to only push the exact version tag.'
-        required: false
         type: boolean
         default: true
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+      no_cache:
+        type: boolean
+        default: false
 
 jobs:
-  verify-source:
-    name: Verify Claude Code Source URL
+  select:
     runs-on: ubuntu-latest
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Verify GCS bucket URL
-        run: |
-          chmod +x .claude/skills/verifying-claude-source/scripts/verify-source.sh
-          .claude/skills/verifying-claude-source/scripts/verify-source.sh
-
-  build-and-push:
-    name: Build and Push Container
-    runs-on: ubuntu-latest
-    needs: verify-source
     permissions:
       contents: read
+    outputs:
+      matrix: ${{ steps.select.outputs.matrix }}
+      version: ${{ steps.select.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select independently versioned images
+        id: select
+        env:
+          IMAGE_TARGET: ${{ inputs.target || 'all' }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+        run: python3 scripts/image_release.py select --target "$IMAGE_TARGET" --version "$REQUESTED_VERSION" --ref "$GITHUB_REF"
+
+  publish:
+    needs: select
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
+    uses: ./.github/workflows/publish-image.yml
+    with:
+      target: ${{ matrix.target }}
+      version: ${{ needs.select.outputs.version }}
+      update_aliases: ${{ github.event_name == 'push' || github.event_name == 'pull_request' || inputs.update_aliases }}
+      no_cache: ${{ inputs.no_cache || false }}
+    secrets: inherit
+    permissions:
+      contents: write
       packages: write
       id-token: write
       attestations: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=ref,event=branch,enable=${{ inputs.version == '' }}
-            type=ref,event=pr,enable=${{ inputs.version == '' }}
-            type=semver,pattern={{version}},enable=${{ inputs.version == '' }}
-            type=semver,pattern={{major}}.{{minor}},enable=${{ inputs.version == '' }}
-            type=semver,pattern={{major}},enable=${{ inputs.version == '' }}
-            type=raw,value=latest,enable=${{ inputs.version == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
-            # Tags for version input (workflow_dispatch / workflow_call)
-            type=semver,pattern={{version}},value=v${{ inputs.version }},enable=${{ inputs.version != '' }}
-            type=semver,pattern={{major}}.{{minor}},value=v${{ inputs.version }},enable=${{ inputs.version != '' && inputs.update_aliases }}
-            type=semver,pattern={{major}},value=v${{ inputs.version }},enable=${{ inputs.version != '' && inputs.update_aliases }}
-            type=raw,value=latest,enable=${{ inputs.version != '' && inputs.update_aliases }}
-          labels: |
-            org.opencontainers.image.title=Claude Code Container
-            org.opencontainers.image.description=Containerized Claude Code CLI with VSIX extension
-
-      - name: Resolve Claude Code version
-        id: version
-        env:
-          REQUESTED_VERSION: ${{ inputs.version }}
-        run: |
-          # Resolve "latest" here so the build arg changes with each release.
-          # The Dockerfile's RUN text never changes, so passing the literal
-          # "latest" would let Buildx reuse a stale cached layer.
-          if [ -n "$REQUESTED_VERSION" ]; then
-            VERSION="$REQUESTED_VERSION"
-          else
-            VERSION=$(curl -fsSL "https://downloads.claude.ai/claude-code-releases/latest")
-          fi
-          echo "Building Claude Code ${VERSION}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push Docker image
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: |
-            CLAUDE_VERSION=${{ steps.version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          no-cache: ${{ inputs.no_cache || false }}
-
-      - name: Verify VSIX in built image
-        continue-on-error: true
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
-        run: |
-          # Extract first tag from metadata
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
-
-          echo "Verifying VSIX in image: ${IMAGE_TAG}"
-
-          # Verify VSIX exists
-          docker run --rm --entrypoint ls "${IMAGE_TAG}" -lh /opt/claude-code/claude-code.vsix
-
-          # Verify VSIX is valid
-          docker run --rm --entrypoint file "${IMAGE_TAG}" /opt/claude-code/claude-code.vsix
-
-          echo "VSIX verification successful"
-
-      - name: Verify Windows binary in built image
-        continue-on-error: true
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.version != ''
-        run: |
-          # Extract first tag from metadata
-          IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -1)
-
-          echo "Verifying Windows binary in image: ${IMAGE_TAG}"
-
-          if docker run --rm --entrypoint test "${IMAGE_TAG}" -f /opt/claude-code/win32-x64/claude.exe; then
-            docker run --rm --entrypoint ls "${IMAGE_TAG}" -lh /opt/claude-code/win32-x64/claude.exe
-            echo "Windows binary verification successful"
-          else
-            echo "::warning::Windows binary missing from image ${IMAGE_TAG} (not published for this version, or download failed)"
-          fi
-
-      - name: Generate artifact attestation
-        if: github.event_name != 'pull_request'
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build.outputs.digest }}
-          push-to-registry: true
