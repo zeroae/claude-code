@@ -1,0 +1,195 @@
+name: Publish One Image
+
+on:
+  workflow_call:
+    inputs:
+      target:
+        type: string
+        required: true
+      version:
+        type: string
+        default: ''
+      claude_version:
+        type: string
+        default: ''
+      codex_version:
+        type: string
+        default: ''
+      codex_vsix_version:
+        type: string
+        default: ''
+      t3_version:
+        type: string
+        default: ''
+      update_aliases:
+        type: boolean
+        default: true
+      no_cache:
+        type: boolean
+        default: false
+      check_existing:
+        type: boolean
+        default: false
+
+jobs:
+  publish:
+    name: Build and publish ${{ inputs.target }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: image-${{ github.repository }}-${{ inputs.target }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test release selection and dependency tracking
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve this image and its dependencies
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_TARGET: ${{ inputs.target }}
+          REQUESTED_VERSION: ${{ inputs.version }}
+          CLAUDE_VERSION: ${{ inputs.claude_version }}
+          CODEX_VERSION: ${{ inputs.codex_version }}
+          CODEX_VSIX_VERSION: ${{ inputs.codex_vsix_version }}
+          T3_VERSION: ${{ inputs.t3_version }}
+          CHECK_EXISTING: ${{ inputs.check_existing }}
+        run: |
+          options=()
+          if [ "$CHECK_EXISTING" = true ]; then options+=(--check-existing); fi
+          python3 scripts/image_release.py plan --target "$IMAGE_TARGET" --version "$REQUESTED_VERSION" \
+            --claude-version "$CLAUDE_VERSION" --codex-version "$CODEX_VERSION" \
+            --codex-vsix-version "$CODEX_VSIX_VERSION" --t3-version "$T3_VERSION" "${options[@]}"
+
+      - name: Verify Claude source for images that include Claude
+        if: steps.release.outputs.should_build == 'true' && inputs.target != 'codex'
+        run: .claude/skills/verifying-claude-source/scripts/verify-source.sh
+
+      - name: Generate image labels
+        id: image_meta
+        if: steps.release.outputs.should_build == 'true'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.release.outputs.image }}
+          flavor: latest=false
+          tags: type=raw,value=${{ steps.release.outputs.snapshot }}
+          labels: |
+            org.opencontainers.image.title=${{ inputs.target }} container
+            org.opencontainers.image.version=${{ steps.release.outputs.version }}
+            ${{ steps.release.outputs.labels }}
+
+      - name: Build and publish multi-platform image
+        id: build
+        if: steps.release.outputs.should_build == 'true'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: ${{ inputs.target }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.release.outputs.image }}:${{ steps.release.outputs.snapshot }}
+          labels: ${{ steps.image_meta.outputs.labels }}
+          build-args: |
+            CLAUDE_VERSION=${{ steps.release.outputs.claude_version }}
+            CODEX_VERSION=${{ steps.release.outputs.codex_version }}
+            CODEX_VSIX_VERSION=${{ steps.release.outputs.codex_vsix_version }}
+            T3CODE_VERSION=${{ steps.release.outputs.t3_version }}
+          cache-from: type=gha,scope=${{ inputs.target }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.target }}
+          no-cache: ${{ inputs.no_cache }}
+
+      - name: Verify Linux runtime, Windows payloads, and installed versions
+        if: steps.release.outputs.should_build == 'true' && github.event_name != 'pull_request'
+        env:
+          IMAGE_TARGET: ${{ inputs.target }}
+          IMAGE_REF: ${{ steps.release.outputs.image }}@${{ steps.build.outputs.digest }}
+          EXPECTED_VERSIONS: ${{ steps.release.outputs.versions }}
+        run: |
+          scripts/smoke-test-image.sh "$IMAGE_TARGET" "$IMAGE_REF"
+          docker run --rm --entrypoint cat "$IMAGE_REF" /opt/image-versions.json > /tmp/installed-versions.json
+          python3 - <<'PY'
+          import json, os
+          with open('/tmp/installed-versions.json') as source:
+              actual = json.load(source)
+          expected = json.loads(os.environ['EXPECTED_VERSIONS'])
+          assert actual == expected, (actual, expected)
+          PY
+
+      - name: Generate artifact attestation
+        if: steps.release.outputs.should_build == 'true' && github.event_name != 'pull_request'
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-name: ${{ steps.release.outputs.image }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Guard aliases against historical releases and stale builds
+        id: aliases
+        if: steps.release.outputs.should_build == 'true' && github.event_name != 'pull_request' && inputs.update_aliases
+        env:
+          IMAGE_TARGET: ${{ inputs.target }}
+          VERSIONS: ${{ steps.release.outputs.versions }}
+          REVISION: ${{ steps.release.outputs.revision }}
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/image_release.py aliases --target "$IMAGE_TARGET" --versions-json "$VERSIONS" --revision "$REVISION"
+
+      - name: Generate product-specific tags
+        id: meta
+        if: steps.release.outputs.should_build == 'true'
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.release.outputs.image }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ steps.release.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.release.outputs.version }},enable=${{ steps.aliases.outputs.promote_aliases == 'true' }}
+            type=semver,pattern={{major}},value=${{ steps.release.outputs.version }},enable=${{ steps.aliases.outputs.promote_aliases == 'true' }}
+            type=raw,value=latest,enable=${{ steps.aliases.outputs.promote_aliases == 'true' }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.aliases.outputs.promote_aliases == 'true' }}
+            type=raw,value=${{ steps.release.outputs.snapshot }}
+
+      - name: Promote only verified images to version and alias tags
+        if: steps.release.outputs.should_build == 'true' && github.event_name != 'pull_request'
+        env:
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_REF: ${{ steps.release.outputs.image }}@${{ steps.build.outputs.digest }}
+        run: |
+          tag_options=()
+          while IFS= read -r tag; do
+            if [ -n "$tag" ]; then tag_options+=(--tag "$tag"); fi
+          done <<< "$IMAGE_TAGS"
+          docker buildx imagetools create "${tag_options[@]}" "$IMAGE_REF"
+
+      - name: Record successful publication for scheduled update checks
+        if: steps.release.outputs.should_build == 'true' && github.event_name != 'pull_request' && steps.aliases.outputs.promote_aliases == 'true'
+        env:
+          RELEASE_MARKER: ${{ steps.release.outputs.marker }}
+        run: |
+          if ! git show-ref --verify --quiet "refs/tags/$RELEASE_MARKER"; then
+            git config user.name 'github-actions[bot]'
+            git config user.email 'github-actions[bot]@users.noreply.github.com'
+            git tag -a "$RELEASE_MARKER" -m "Published $RELEASE_MARKER"
+            git push origin "refs/tags/$RELEASE_MARKER"
+          fi
