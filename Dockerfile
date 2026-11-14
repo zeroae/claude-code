@@ -1,20 +1,25 @@
 ARG T3CODE_VERSION=0.1.9
 ARG CODEX_VERSION=0.169.0
 
-# Extract the desktop AppImage at build time; running it then needs no FUSE.
-FROM amazonlinux:2023 AS t3-desktop
+# Unpack the desktop package on the builder's architecture. Executing a target
+# AppImage extractor fails under QEMU, even when ordinary target binaries work.
+FROM --platform=$BUILDPLATFORM amazonlinux:2023 AS t3-desktop
 ARG T3CODE_VERSION
+ARG TARGETARCH
+RUN dnf install -y binutils tar xz && dnf clean all
 WORKDIR /tmp
 RUN set -eu; \
-    case "$(uname -m)" in \
-        x86_64) DESKTOP_ARCH=x86_64 ;; \
-        aarch64) DESKTOP_ARCH=arm64 ;; \
-        *) echo "Unsupported architecture" >&2; exit 1 ;; \
-    esac; \
-    curl -fsSL "https://github.com/pingdotgg/t3code/releases/download/v${T3CODE_VERSION}/T3-Code-${T3CODE_VERSION}-${DESKTOP_ARCH}.AppImage" -o /tmp/t3.AppImage; \
-    chmod +x /tmp/t3.AppImage; \
-    /tmp/t3.AppImage --appimage-extract >/dev/null; \
-    rm /tmp/t3.AppImage
+    case "$TARGETARCH" in amd64|arm64) ;; *) echo "Unsupported architecture" >&2; exit 1 ;; esac; \
+    curl -fsSL "https://github.com/pingdotgg/t3code/releases/download/v${T3CODE_VERSION}/T3-Code-${T3CODE_VERSION}-${TARGETARCH}.deb" -o /tmp/t3.deb; \
+    ar p /tmp/t3.deb data.tar.xz > /tmp/data.tar.xz; \
+    mkdir -p /tmp/desktop; \
+    tar -xJf /tmp/data.tar.xz -C /tmp/desktop ./opt; \
+    set -- /tmp/desktop/opt/*; \
+    test "$#" -eq 1; \
+    mv "$1" /tmp/t3-desktop; \
+    test -x /tmp/t3-desktop/t3code; \
+    test -s /tmp/t3-desktop/resources/app.asar; \
+    rm /tmp/t3.deb /tmp/data.tar.xz
 
 FROM amazonlinux:2023 AS base
 # Install dependencies
@@ -157,8 +162,8 @@ RUN curl -fsSL https://t3.codes/install.sh -o /tmp/install-t3.sh && \
 RUN dnf install -y gtk3 nss alsa-lib cups-libs mesa-libgbm libxkbcommon \
     libXScrnSaver libXtst dejavu-sans-fonts xdg-utils desktop-file-utils \
     shared-mime-info && dnf clean all
-COPY --from=t3-desktop /tmp/squashfs-root /opt/t3-desktop
-RUN ln -s /opt/t3-desktop/AppRun /usr/local/bin/t3-desktop
+COPY --from=t3-desktop /tmp/t3-desktop /opt/t3-desktop
+RUN ln -s /opt/t3-desktop/t3code /usr/local/bin/t3-desktop
 
 # Windows payloads can be extracted for use on a Windows x64 host.
 COPY --from=codex /opt/codex/win32-x64 /opt/codex/win32-x64

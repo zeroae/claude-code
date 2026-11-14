@@ -180,7 +180,7 @@ docker compose --profile t3 down
 
 ### Native desktop app
 
-The T3 image also includes the Linux Electron desktop app as `t3-desktop`, extracted from the official AppImage so it runs without FUSE. The separate `t3` command runs the standalone server.
+The T3 image also includes the Linux Electron desktop app as `t3-desktop`, unpacked from the official Debian package with native build tools, so cross-platform builds need neither a target-architecture extractor nor FUSE. The separate `t3` command runs the standalone server.
 
 On a Linux host running X11 or XWayland, pass the display and its Xauthority file:
 
